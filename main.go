@@ -30,13 +30,11 @@ func handleErr(err error) {
 func getWordsFromIndex(out chan string) {
 	baseLinkerURL := "https://dictionary.cambridge.org/browse/english/%s/"
 	wordURLrx := "dictionary/english/.+$"
-	linker := colly.NewCollector(
-	// colly.Async(true),
-	)
+	linker := colly.NewCollector()
 
 	// Links from a latter index to word chunks
 	linker.OnHTML("a.dil.tcbd", func(e *colly.HTMLElement) {
-		linker.Visit(e.Attr("href"))
+		e.Request.Visit(e.Attr("href"))
 	})
 
 	// Get links to the words
@@ -49,20 +47,18 @@ func getWordsFromIndex(out chan string) {
 		}
 	})
 
-	p := make([]byte, 1)
+	p := make([]byte, 26)
 	for i := range p {
-		toVisit := fmt.Sprintf(baseLinkerURL, string('z'+i))
+		toVisit := fmt.Sprintf(baseLinkerURL, string('a'+i))
 		linker.Visit(toVisit)
 	}
-
-	defer close(out)
 }
 
 func getWordsDefs(in chan string, out chan Word) {
 	c := colly.NewCollector(
 		colly.Async(true),
 	)
-	collapseTime := time.Second * 5
+	collapseTime := time.Minute * 2
 	closeT := time.NewTimer(collapseTime)
 
 	c.OnHTML("article#page-content", func(article *colly.HTMLElement) {
@@ -82,8 +78,7 @@ func getWordsDefs(in chan string, out chan Word) {
 		} else if len(headWord) > 0 {
 			word.word = headWord[0]
 		} else {
-			// Skip the word
-			out <- word
+			out <- word // Skip the word
 			return
 		}
 
@@ -103,15 +98,15 @@ func getWordsDefs(in chan string, out chan Word) {
 		})
 
 		closeT = time.NewTimer(collapseTime)
+
 		out <- word
 	})
 
-	for link := range in {
-		c.Visit(link)
-	}
-
 	for alive := true; alive; {
 		select {
+		case link := <-in:
+			go c.Visit(link)
+
 		case <-closeT.C:
 			alive = false
 			close(out)
@@ -127,7 +122,7 @@ func main() {
 	go getWordsFromIndex(links)
 	go getWordsDefs(links, words)
 
-	file, err := os.Create("out-test.csv")
+	file, err := os.Create("out2.csv")
 	if err != nil {
 		panic(err)
 	}
@@ -139,7 +134,7 @@ func main() {
 
 	i := 0
 	missed := 0
-	repCache, err := lru.New(20)
+	repCache, err := lru.New(50)
 	handleErr(err)
 
 	for w := range words {
@@ -153,7 +148,7 @@ func main() {
 			if i%300 == 0 {
 				out.Flush()
 			}
-		} else if w.word == "?" {
+		} else {
 			missed++
 		}
 	}
