@@ -1,10 +1,11 @@
 package main
 
 import (
-	"bufio"
+	"encoding/csv"
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/gocolly/colly"
@@ -14,11 +15,11 @@ import (
 // Word : An internal representation of a word
 type Word struct {
 	word    string
-	noun    int8
-	adj     int8
-	verb    int8
-	phrasal int8
-	adverb  int8
+	noun    int
+	adj     int
+	verb    int
+	phrasal int
+	adverb  int
 }
 
 func handleErr(err error) {
@@ -115,11 +116,21 @@ func getWordsDefs(in chan string, out chan Word) {
 
 }
 
+func EntryOfWord(w *Word) []string {
+	out := []string{w.word}
+	for _, prop := range []int{w.noun, w.adj, w.verb, w.phrasal, w.adverb} {
+		out = append(out, strconv.Itoa(prop))
+	}
+
+	return out
+}
+
 func main() {
 	start := time.Now()
 	links := make(chan string)
 	words := make(chan Word)
 	go getWordsFromIndex(links)
+	go getWordsDefs(links, words)
 	go getWordsDefs(links, words)
 
 	file, err := os.Create("out2.csv")
@@ -127,10 +138,10 @@ func main() {
 		panic(err)
 	}
 
-	out := bufio.NewWriter(file)
+	out := csv.NewWriter(file)
 	defer file.Close()
 
-	out.WriteString("word,noun,adjective,verb,phrasal verb,adverb\n")
+	out.Write([]string{"word", "noun", "adjective", "verb", "phrasal verb", "adverb"})
 
 	i := 0
 	missed := 0
@@ -142,7 +153,7 @@ func main() {
 			fmt.Printf("[%v; %v] %v\n", i, missed, w.word)
 
 			// !!! UPDATE THE ORDER OF PROPERTIES IN THE HEADER IF YOU CHANGE THEM HERE !!!
-			out.WriteString(fmt.Sprintf("%s,%d,%d,%d,%d,%d\n", w.word, w.noun, w.adj, w.verb, w.phrasal, w.adverb))
+			go out.Write(EntryOfWord(&w))
 			i++
 			repCache.Add(w.word, 1)
 			if i%300 == 0 {
